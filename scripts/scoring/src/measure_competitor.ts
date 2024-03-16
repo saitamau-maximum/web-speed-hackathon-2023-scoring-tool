@@ -95,8 +95,9 @@ function calculateHackathonScore(lighthouseScores: LighthouseScoreList): Hackath
       lh.firstContentfulPaint * 100 * 10 +
       lh.speedIndex * 100 * 10 +
       lh.largestContentfulPaint * 100 * 25 +
+      lh.timeToInteractive * 100 * 10 +
       lh.totalBlockingTime * 100 * 30 +
-      lh.cumulativeLayoutShift * 100 * 25
+      lh.cumulativeLayoutShift * 100 * 15
     );
   }, 0);
 
