@@ -49,58 +49,10 @@ jobs:
               return 'closed';
             }
             return 'opened';
-  vrt:
-    runs-on: ubuntu-20.04
-    needs:
-      - payload
-    if: needs.payload.outputs.competition-status == 'opened'
-    outputs:
-      details: ${{ steps.details.outputs.result }}
-      result: ${{ steps.result.outputs.result }}
-    concurrency: scoring-${{ fromJSON(needs.payload.outputs.result).id }}
-    steps:
-      - uses: actions/checkout@ec3a7ce113134d7a93b817d10a8272cb61118579 # renovate: tag=v2.4.0
-      - uses: actions/setup-node@1f8c6b94b26d0feae1e387ca63ccbdc44d27b561 # renovate: tag=v2.5.1
-        with:
-          node-version: "18"
-          cache: "yarn"
-      - run: yarn install --frozen-lockfile
-      - run: yarn build
-      - run: sudo apt-get install -y fonts-noto-cjk
-      - name: Run VRT
-        id: vrt
-        run: |
-          yarn run vrt:capture --url ${TARGET_URL}
-          yarn run vrt:detect
-        env:
-          TARGET_URL: ${{ fromJSON(needs.payload.outputs.result).url }}
-      - name: Upload payload
-        uses: actions/upload-artifact@82c141cc518b40d92cc801eee768e7aafc9c2fa2 # renovate: tag=v2.3.1
-        with:
-          name: screenshots
-          path: ./scripts/vrt/tmp/*
-          retention-days: 1
-      - name: Read details
-        uses: actions/github-script@9ac08808f993958e9de277fe43a64532a609130e # renovate: tag=v6.0.0
-        id: details
-        with:
-          result-encoding: json
-          script: |
-            const payload = require('./scripts/vrt/tmp/reg.json');
-            return payload;
-      - name: Read result
-        uses: actions/github-script@9ac08808f993958e9de277fe43a64532a609130e # renovate: tag=v6.0.0
-        id: result
-        with:
-          result-encoding: string
-          script: |
-            const payload = require('./scripts/vrt/tmp/reg.json');
-            return payload.failedItems.length === 0 ? 'success' : 'failed';
   scoring:
     runs-on: ubuntu-20.04
     needs:
       - payload
-      - vrt
     outputs:
       result: ${{ steps.scoring.outputs.export }}
     concurrency: scoring-${{ fromJSON(needs.payload.outputs.result).id }}
@@ -126,9 +78,7 @@ jobs:
     runs-on: ubuntu-20.04
     needs:
       - payload
-      - vrt
       - scoring
-    if: needs.vrt.outputs.result == 'success'
     outputs:
       result: ${{ steps.update.outputs.export }}
     concurrency: update-leader-board
@@ -188,75 +138,9 @@ jobs:
           comment-id: ${{ fromJSON(needs.payload.outputs.result).report_comment_id }}
           edit-mode: replace
           body: |
-            ## レギュレーションチェック
-
-            :hourglass_flowing_sand: **VRT を実行しています**
-
-            ---
-
-            Actions: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-  comment-failure-vrt:
-    runs-on: ubuntu-20.04
-    needs:
-      - payload
-      - vrt
-      - comment-payload
-    if: always() && needs.vrt.result == 'failure'
-    steps:
-      - name: Comment
-        uses: peter-evans/create-or-update-comment@a35cf36e5301d70b76f316e867e7788a55a31dae # renovate: tag=v1.4.5
-        with:
-          comment-id: ${{ fromJSON(needs.payload.outputs.result).report_comment_id }}
-          edit-mode: replace
-          body: |
-            ## レギュレーションチェック
-
-            :exclamation: **VRT が実行できませんでした**
-
-            次を確認してください
-
-            - URL が間違っていませんか
-            - API `POST /api/initialize` が実行できますか
-            - 計測対象のページは、誰でも閲覧できるようになっていますか
-            - エラーページ以外では、ステータスコードが 200 で返却されますか
-
-            ---
-
-            Actions: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-            :information_source: `/retry` とコメントすると、もう一度計測ができます
-            :information_source: 登録内容を変更する場合は、issue を閉じて作り直してください
-  comment-vrt:
-    runs-on: ubuntu-20.04
-    needs:
-      - payload
-      - vrt
-      - comment-payload
-    steps:
-      - name: Comment
-        uses: peter-evans/create-or-update-comment@a35cf36e5301d70b76f316e867e7788a55a31dae # renovate: tag=v1.4.5
-        with:
-          comment-id: ${{ fromJSON(needs.payload.outputs.result).report_comment_id }}
-          edit-mode: replace
-          body: |
-            ## レギュレーションチェック
-
-            ${{ (needs.vrt.outputs.result == 'success' && '**差分はありませんでした**') || '**一部のページに差分があります**' }}
-
-            <details>
-            <summary>差分が見つかったページ</summary>
-
-            - :information_source: スクリーンショットは、スコア計測後に、Actions の Artifacts からダウンロードできます
-
-            ```json
-            ${{ toJSON(fromJSON(needs.vrt.outputs.details).failedItems) }}
-            ```
-
-            </details>
-
             ## スコア
 
-            :hourglass_flowing_sand: **Lighthouse でスコアを計測しています**
+            :hourglass_flowing_sand: **計測中です...**
 
             ---
 
@@ -265,9 +149,7 @@ jobs:
     runs-on: ubuntu-20.04
     needs:
       - payload
-      - vrt
       - scoring
-      - comment-vrt
     if: always() && needs.scoring.result == 'failure'
     steps:
       - name: Comment
@@ -276,21 +158,6 @@ jobs:
           comment-id: ${{ fromJSON(needs.payload.outputs.result).report_comment_id }}
           edit-mode: replace
           body: |
-            ## レギュレーションチェック
-
-            ${{ (needs.vrt.outputs.result == 'success' && '**差分はありませんでした**') || '**一部のページに差分があります**' }}
-
-            <details>
-            <summary>差分が見つかったページ</summary>
-
-            - :information_source: スクリーンショットは、スコア計測後に、Actions の Artifacts からダウンロードできます
-
-            ```json
-            ${{ toJSON(fromJSON(needs.vrt.outputs.details).failedItems) }}
-            ```
-
-            </details>
-
             ## スコア
 
             :exclamation: **Lighthouse の計測ができませんでした**
@@ -311,32 +178,14 @@ jobs:
     runs-on: ubuntu-20.04
     needs:
       - payload
-      - vrt
       - scoring
-      - comment-vrt
     steps:
       - name: Comment
         uses: peter-evans/create-or-update-comment@a35cf36e5301d70b76f316e867e7788a55a31dae # renovate: tag=v1.4.5
-        if: needs.vrt.outputs.result == 'success'
         with:
           comment-id: ${{ fromJSON(needs.payload.outputs.result).report_comment_id }}
           edit-mode: replace
           body: |
-            ## レギュレーションチェック
-
-            ${{ (needs.vrt.outputs.result == 'success' && '**差分はありませんでした**') || '**一部のページに差分があります**' }}
-
-            <details>
-            <summary>差分が見つかったページ</summary>
-
-            - :information_source: スクリーンショットは、スコア計測後に、Actions の Artifacts からダウンロードできます
-
-            ```json
-            ${{ toJSON(fromJSON(needs.vrt.outputs.details).failedItems) }}
-            ```
-
-            </details>
-
             ## スコア
 
             スコアは **${{ fromJSON(needs.scoring.outputs.result).result.score }}** です
@@ -355,54 +204,10 @@ jobs:
             ---
 
             Actions: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      - name: Comment
-        uses: peter-evans/create-or-update-comment@a35cf36e5301d70b76f316e867e7788a55a31dae # renovate: tag=v1.4.5
-        if: needs.vrt.outputs.result != 'success'
-        with:
-          comment-id: ${{ fromJSON(needs.payload.outputs.result).report_comment_id }}
-          edit-mode: replace
-          body: |
-            ## レギュレーションチェック
-
-            ${{ (needs.vrt.outputs.result == 'success' && '**差分はありませんでした**') || '**一部のページに差分があります**' }}
-
-            <details>
-            <summary>差分が見つかったページ</summary>
-
-            - :information_source: スクリーンショットは、スコア計測後に、Actions の Artifacts からダウンロードできます
-
-            ```json
-            ${{ toJSON(fromJSON(needs.vrt.outputs.details).failedItems) }}
-            ```
-
-            </details>
-
-            ## スコア
-
-            スコアは **${{ fromJSON(needs.scoring.outputs.result).result.score }}** です
-
-            :warning: VRT で差分があったため、リーダーボードには反映されません
-
-            <details>
-            <summary>buildInfo</summary>
-
-            ```json
-            ${{ toJSON(fromJSON(needs.scoring.outputs.result).buildInfo) }}
-            ```
-
-            </details>
-
-            ---
-
-            Actions: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-            :information_source: `/retry` とコメントすると、もう一度計測ができます
-            :information_source: 登録内容を変更する場合は、issue を閉じて作り直してください
   comment-failure-update:
     runs-on: ubuntu-20.04
     needs:
       - payload
-      - vrt
       - scoring
       - update
       - comment-scoring
@@ -414,21 +219,6 @@ jobs:
           comment-id: ${{ fromJSON(needs.payload.outputs.result).report_comment_id }}
           edit-mode: replace
           body: |
-            ## レギュレーション
-
-            ${{ (needs.vrt.outputs.result == 'success' && '**差分はありませんでした**') || '**一部のページに差分があります**' }}
-
-            <details>
-            <summary>差分が見つかったページ</summary>
-
-            - :information_source: スクリーンショットは、スコア計測後に、Actions の Artifacts からダウンロードできます
-
-            ```json
-            ${{ toJSON(fromJSON(needs.vrt.outputs.details).failedItems) }}
-            ```
-
-            </details>
-
             ## スコア
 
             スコアは **${{ fromJSON(needs.scoring.outputs.result).result.score }}** です
@@ -454,7 +244,6 @@ jobs:
     runs-on: ubuntu-20.04
     needs:
       - payload
-      - vrt
       - scoring
       - update
       - comment-scoring
@@ -465,21 +254,6 @@ jobs:
           comment-id: ${{ fromJSON(needs.payload.outputs.result).report_comment_id }}
           edit-mode: replace
           body: |
-            ## レギュレーションチェック
-
-            ${{ (needs.vrt.outputs.result == 'success' && '**差分はありませんでした**') || '**一部のページに差分があります**' }}
-
-            <details>
-            <summary>差分が見つかったページ</summary>
-
-            - :information_source: スクリーンショットは、スコア計測後に、Actions の Artifacts からダウンロードできます
-
-            ```json
-            ${{ toJSON(fromJSON(needs.vrt.outputs.details).failedItems) }}
-            ```
-
-            </details>
-
             ## スコア
 
             スコアは **${{ fromJSON(needs.scoring.outputs.result).result.score }}** です
